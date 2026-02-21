@@ -124,4 +124,4 @@ def analizza_e_disegna(timeframe, delta_futuro):
 
 
 # --- CREAZIONE DELLE SCHEDE (TABS) INTERATTIVE ---
-tab1, tab2, tab3 = st.tabs
+tab1, tab2, tab3 = st.tabs(["🕒 1 Ora (Breve Termine)", "🕓 4 Ore (Medio Termine)", "📅 1 Giorno (Lungo Termine)"])

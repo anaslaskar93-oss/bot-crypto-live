@@ -125,3 +125,26 @@ def analizza_e_disegna(timeframe, delta_futuro):
 
 # --- CREAZIONE DELLE SCHEDE (TABS) INTERATTIVE ---
 tab1, tab2, tab3 = st.tabs(["🕒 1 Ora (Breve Termine)", "🕓 4 Ore (Medio Termine)", "📅 1 Giorno (Lungo Termine)"])
+
+try:
+    with tab1:
+        analizza_e_disegna('1h', timedelta(hours=1))
+        
+    time.sleep(2) # <-- PAUSA: Evita il blocco anti-spam di Kraken
+    
+    with tab2:
+        analizza_e_disegna('4h', timedelta(hours=4))
+        
+    time.sleep(2) # <-- PAUSA: Evita il blocco anti-spam di Kraken
+        
+    with tab3:
+        analizza_e_disegna('1d', timedelta(days=1))
+
+    st.caption("⏳ Auto-refresh di tutti i timeframe ogni 60 secondi...")
+    time.sleep(60)
+    st.rerun()
+
+except Exception as e:
+    st.error(f"Si è verificato un errore di connessione: {e}")
+    time.sleep(10)
+    st.rerun()

@@ -18,7 +18,7 @@ st.title("🤖 Trading Quantitativo - Dashboard")
 col_testo, col_grafico = st.columns([1, 2])
 
 # --- INIZIALIZZAZIONE STRUMENTI ---
-exchange = ccxt.binance()
+exchange = ccxt.kraken()
 analizzatore = SentimentIntensityAnalyzer()
 simbolo = 'BTC/USDT'
 url_news = "https://cointelegraph.com/rss"

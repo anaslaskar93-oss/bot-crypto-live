@@ -5,11 +5,12 @@ import numpy as np
 import plotly.graph_objects as go
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import feedparser
-from datetime import timedelta
+from datetime import datetime, timedelta
 import time
 import warnings
 import urllib.request
 import urllib.parse
+import json
 
 warnings.filterwarnings('ignore')
 
@@ -28,30 +29,72 @@ def invia_messaggio_telegram(testo):
     except Exception as e:
         pass
 
-# Memoria per non spammare (salva l'orario dell'ultima candela)
+# Memoria per non spammare
 if 'ultima_candela_1h' not in st.session_state:
     st.session_state.ultima_candela_1h = None
 
 exchange = ccxt.kraken()
 analizzatore = SentimentIntensityAnalyzer()
 simbolo = 'BTC/USDT'
-url_news = "https://cointelegraph.com/rss"
 
-# --- IA NOTIZIE (Comune a tutti i grafici) ---
+# --- 2. IA NOTIZIE MULTI-FEED (Crypto + Macro USA) ---
+urls_news = [
+    ("Crypto", "https://cointelegraph.com/rss"),
+    ("Macro USA", "https://finance.yahoo.com/news/rss")
+]
+titoli_raccolti = []
+punteggi = []
+
+for fonte, url in urls_news:
+    try:
+        feed = feedparser.parse(url)
+        if feed.entries:
+            titolo = feed.entries[0].title
+            titoli_raccolti.append(f"**{fonte}:** {titolo}")
+            punteggi.append(analizzatore.polarity_scores(titolo)['compound'])
+    except:
+        pass
+
+punteggio_news = np.mean(punteggi) if punteggi else 0
+
+# --- 3. CALENDARIO ECONOMICO USA (Solo Alto Impatto) ---
+eventi_usa_oggi = []
 try:
-    feed = feedparser.parse(url_news)
-    ultima_notizia = feed.entries[0].title if feed.entries else "Nessuna notizia trovata."
-    punteggio_news = analizzatore.polarity_scores(ultima_notizia)['compound']
-except:
-    ultima_notizia = "Impossibile caricare le notizie."
-    punteggio_news = 0
+    url_cal = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+    req = urllib.request.Request(url_cal, headers={'User-Agent': 'Mozilla/5.0'})
+    with urllib.request.urlopen(req) as response:
+        calendario = json.loads(response.read().decode())
+        oggi = datetime.now().strftime("%Y-%m-%d") # Prende la data di oggi
+        for evento in calendario:
+            # Cerca solo eventi sul Dollaro (USD) e con impatto "High"
+            if evento['country'] == 'USD' and evento['impact'] == 'High':
+                if evento['date'].startswith(oggi):
+                    eventi_usa_oggi.append(f"⏰ {evento['time']} - {evento['title']}")
+except Exception as e:
+    pass
 
+# --- 4. INTERFACCIA RADAR MACRO ---
 st.markdown("---")
-st.subheader("📰 Intelligenza Artificiale (Contesto Globale)")
-st.write(f"_{ultima_notizia}_  **(Sentiment Score: {punteggio_news:.2f})**")
+colA, colB = st.columns(2)
+
+with colA:
+    st.subheader("📰 Intelligenza Artificiale (Sentiment)")
+    for t in titoli_raccolti:
+        st.write(t)
+    if punteggio_news > 0.2: st.success(f"**Punteggio Medio:** {punteggio_news:.2f} (Positivo)")
+    elif punteggio_news < -0.2: st.error(f"**Punteggio Medio:** {punteggio_news:.2f} (Negativo)")
+    else: st.info(f"**Punteggio Medio:** {punteggio_news:.2f} (Neutro)")
+
+with colB:
+    st.subheader("🚨 Calendario USA (Impatto Alto Oggi)")
+    if eventi_usa_oggi:
+        for ev in eventi_usa_oggi:
+            st.error(ev)
+    else:
+        st.success("✅ Nessun evento USA ad alto impatto previsto per oggi.")
 st.markdown("---")
 
-# --- IL MOTORE DI CALCOLO UNIVERSALE ---
+# --- 5. IL MOTORE DI CALCOLO UNIVERSALE ---
 def analizza_e_disegna(timeframe, delta_futuro):
     # Dati
     dati_grezzi = exchange.fetch_ohlcv(simbolo, timeframe, limit=100)
@@ -110,14 +153,17 @@ def analizza_e_disegna(timeframe, delta_futuro):
     if punteggio_totale >= 2: verdetto_testo = "APRIRE LONG 🚀"
     elif punteggio_totale <= -2: verdetto_testo = "APRIRE SHORT 🩸"
 
-    # --- LOGICA DI INVIO TELEGRAM (SOLO PER 1 ORA) ---
+    # --- LOGICA DI INVIO TELEGRAM (SOLO 1 ORA) ---
     if timeframe == '1h':
         if st.session_state.ultima_candela_1h != ora_attuale:
-            messaggio_telegram = f"🤖 AGGIORNAMENTO BOT (1H)\n\n💰 Prezzo BTC: {prezzo_attuale:.2f} $\n🎯 Target: {target_price:.2f} $\n📊 RSI: {rsi_attuale:.0f}\n\n⚖️ VERDETTO: {verdetto_testo}"
+            # Prepara l'avviso per il calendario
+            avviso_macro = "\n\n🚨 ATTENZIONE: Ci sono eventi USA Alto Impatto oggi!" if eventi_usa_oggi else ""
+            
+            messaggio_telegram = f"🤖 AGGIORNAMENTO BOT (1H)\n\n💰 Prezzo BTC: {prezzo_attuale:.2f} $\n🎯 Target: {target_price:.2f} $\n📊 RSI: {rsi_attuale:.0f}\n\n⚖️ VERDETTO: {verdetto_testo}{avviso_macro}"
             invia_messaggio_telegram(messaggio_telegram)
             st.session_state.ultima_candela_1h = ora_attuale
 
-    # Creazione delle due colonne UI per questo specifico timeframe
+    # Creazione UI Timeframe
     col1, col2 = st.columns([1, 2])
     with col1:
         st.subheader(f"📊 Analisi {timeframe}")
@@ -125,53 +171,38 @@ def analizza_e_disegna(timeframe, delta_futuro):
         st.metric(label=f"Target Price (Tra 1 Candela)", value=f"{target_price:.2f} $", delta=f"{differenza_dollari:.2f} $")
         
         st.markdown("---")
-        st.write(f"**RSI (Stanchezza):** {rsi_attuale:.0f}/100 " + ("🔴 Ipercomprato" if rsi_attuale > 70 else "🟢 Ipervenduto" if rsi_attuale < 30 else "⚪ Neutro"))
-        st.write(f"**MACD (Inerzia):** " + ("🟢 Trend Rialzista" if macd_attuale > signal_attuale else "🔴 Trend Ribassista"))
+        st.write(f"**RSI (Stanchezza):** {rsi_attuale:.0f}/100 ")
+        st.write(f"**MACD (Inerzia):** " + ("🟢 Rialzista" if macd_attuale > signal_attuale else "🔴 Ribassista"))
         
         st.markdown("---")
-        if punteggio_totale >= 2:
-            st.success(f"🚀 VERDETTO {timeframe}: APRIRE LONG")
-        elif punteggio_totale <= -2:
-            st.error(f"🩸 VERDETTO {timeframe}: APRIRE SHORT")
-        else:
-            st.warning(f"⚖️ VERDETTO {timeframe}: ATTENDERE")
+        if punteggio_totale >= 2: st.success(f"🚀 VERDETTO {timeframe}: APRIRE LONG")
+        elif punteggio_totale <= -2: st.error(f"🩸 VERDETTO {timeframe}: APRIRE SHORT")
+        else: st.warning(f"⚖️ VERDETTO {timeframe}: ATTENDERE")
 
     with col2:
         fig = go.Figure()
-        # Bollinger
         fig.add_trace(go.Scatter(x=df.index, y=df['BB_Upper'], mode='lines', line=dict(color='rgba(255, 255, 255, 0.2)', dash='dot'), name='Tetto (BB)'))
         fig.add_trace(go.Scatter(x=df.index, y=df['BB_Lower'], mode='lines', line=dict(color='rgba(255, 255, 255, 0.2)', dash='dot'), name='Fondo (BB)', fill='tonexty', fillcolor='rgba(255, 255, 255, 0.05)'))
-        # Candele
         fig.add_trace(go.Candlestick(x=df.index, open=df['Apertura'], high=df['Massimo'], low=df['Minimo'], close=df['Chiusura'], name='BTC'))
-        # Proiezione
         fig.add_trace(go.Scatter(x=[ora_attuale, ora_futura], y=[prezzo_attuale, target_price], mode='lines+markers', name='Proiezione', line=dict(color='cyan', width=3, dash='dash')))
-        
         fig.update_layout(title=f'Grafico BTC/USDT ({timeframe})', yaxis_title='Prezzo ($)', template='plotly_dark', height=550, xaxis_rangeslider_visible=False)
         st.plotly_chart(fig, use_container_width=True)
 
-
-# --- CREAZIONE DELLE SCHEDE (TABS) INTERATTIVE ---
+# --- 6. SCHEDE TABS ---
 tab1, tab2, tab3 = st.tabs(["🕒 1 Ora (Breve Termine)", "🕓 4 Ore (Medio Termine)", "📅 1 Giorno (Lungo Termine)"])
 
 try:
-    with tab1:
-        analizza_e_disegna('1h', timedelta(hours=1))
-        
-    time.sleep(2) # <-- PAUSA: Evita il blocco anti-spam di Kraken
-    
-    with tab2:
-        analizza_e_disegna('4h', timedelta(hours=4))
-        
-    time.sleep(2) # <-- PAUSA: Evita il blocco anti-spam di Kraken
-        
-    with tab3:
-        analizza_e_disegna('1d', timedelta(days=1))
+    with tab1: analizza_e_disegna('1h', timedelta(hours=1))
+    time.sleep(2)
+    with tab2: analizza_e_disegna('4h', timedelta(hours=4))
+    time.sleep(2)
+    with tab3: analizza_e_disegna('1d', timedelta(days=1))
 
-    st.caption("⏳ Auto-refresh di tutti i timeframe ogni 60 secondi...")
+    st.caption("⏳ Auto-refresh ogni 60 secondi...")
     time.sleep(60)
     st.rerun()
 
 except Exception as e:
-    st.error(f"Si è verificato un errore di connessione: {e}")
+    st.error(f"Errore di rete: {e}")
     time.sleep(10)
     st.rerun()

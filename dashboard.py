@@ -235,3 +235,5 @@ except Exception as e:
     st.error(f"Errore di rete: {e}")
     time.sleep(10)
     st.rerun()
+flask
+gunicorn
